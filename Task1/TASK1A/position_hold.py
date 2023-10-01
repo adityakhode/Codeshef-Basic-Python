@@ -58,18 +58,20 @@ class swift():
 		#initial setting of Kp, Kd and ki for [roll, pitch, throttle]. eg: self.Kp[2] corresponds to Kp value in throttle axis
 		#after tuning and computing corresponding PID parameters, change the parameters
 
-		self.Kp = [0, 0, 0]
-		self.Ki = [0, 0, 0]
-		self.Kd = [0, 0, 0]
+		self.Kp = [0, 0, 5.22]
+		self.Ki = [0, 0, 0.008]
+		self.Kd = [0, 0, 171]
    
 		#-----------------------Add other required variables for pid here ----------------------------------------------
 
-		self.error = [0.0, 0.0 ,0.0]    #error for x,y,z axis
-		self.pre_error = [0.0, 0.0 ,0.0]  # to store previous error for derivative controller
-		self.sum_error = [0.0, 0.0 ,0.0] 
-
+		self.alt_error = 0.0
+		self.prev_alt_error = 0.0
+		self.sum_alt_error = 0.0
+		
 		self.min_throttle = 1000
 		self.max_throttle = 2000
+
+
 
 
 
@@ -82,7 +84,7 @@ class swift():
 		#----------------------------------------------------------------------------------------------------------
 
 		# # This is the sample time in which you need to run pid. Choose any time which you seem fit. Remember the stimulation step time is 50 ms
-		# self.sample_time = 0.060 # in seconds
+		#self.sample_time = 0.03333 # in seconds
 
 
 
@@ -91,7 +93,7 @@ class swift():
 		# Publishing /drone_command, /alt_error, /pitch_error, /roll_error
 		self.command_pub = rospy.Publisher('/drone_command', swift_msgs, queue_size=1)
 		#------------------------Add other ROS Publishers here-----------------------------------------------------
-		self.alt_error_pub = rospy.Publisher('/alt_error' , Float64 , queue_size=1)
+		self.alt_error_pub = rospy.Publisher('/alt_error', Float64, queue_size=1)
 
 
 
@@ -153,7 +155,7 @@ class swift():
 	# Callback function for /pid_tuning_altitude
 	# This function gets executed each time when /tune_pid publishes /pid_tuning_altitude
 	def altitude_set_pid(self,alt):
-		self.Kp[2] = alt.Kp * 0.06 # This is just for an example. You can change the ratio/fraction value accordingly
+		self.Kp[2] = alt.Kp * 0.06# This is just for an example. You can change the ratio/fraction value accordingly
 		self.Ki[2] = alt.Ki * 0.0008
 		self.Kd[2] = alt.Kd * 0.3
 		
@@ -186,27 +188,22 @@ class swift():
 	#	7. Update previous errors.eg: self.prev_error[1] = error[1] where index 1 corresponds to that of pitch (eg)
 	#	8. Add error_sum
 
+		self.alt_error = -(self.setpoint[2]- self.drone_position[2])
 
-		self.error[0] = - (self.setpoint[0] - self.drone_position[0])   #calculate the remaining error for each axis x,y,z respectively
-		self.error[1] = - (self.setpoint[1] - self.drone_position[1])
-		self.error[2] = - (self.setpoint[2] - self.drone_position[2])
+		self.cmd.rcThrottle = int(1587+ self.alt_error * self.Kp[2] + ((self.alt_error - self.prev_alt_error)) * self.Kd[2] + self.sum_alt_error * self.Ki[2])
 
-		self.cmd.rcThrottle = int(1550 + self.error[2] * self.Kp[2]-(self.error[2] - self.pre_error[2]) * self.Kd[2]+ self.error[2] * self.Ki[2])
-		
-		if self.cmd.rcThrottle > self.max_throttle:
-			self.cmd.rcThrottle = self.max_throttle
-		elif self.cmd.rcThrottle < self.min_throttle:
-			self.cmd.rcThrottle = self.min_throttle
+		if self.cmd.rcThrottle > 2000:
+			self.cmd.rcThrottle = 2000
+		if self.cmd.rcThrottle < 1000:
+			self.cmd.rcThrottle = 1000
 
-		self.pre_error[0] = self.drone_position[0]                       #record the current error and saves it to prevoius error for differential calculatoons
-		self.pre_error[1] = self.drone_position[1]
-		self.pre_error[2] = self.drone_position[2]
+		self.prev_alt_error = self.alt_error
 
-		self.sum_error[0] = self.sum_error[0] + self.error[0]			# calculate the the total error for integral
-		self.sum_error[1] = self.sum_error[1] + self.error[1]
-		self.sum_error[2] = self.sum_error[2] + self.error[2]
+		self.sum_alt_error = self.sum_alt_error + self.alt_error
 
-		print("Throttle = {} ,   thKP = {} ,   thKd = {} ,   thKi = {}".format(self.cmd.rcThrottle,self.Kp[2],self.Kd[2],self.Ki[2]))
+
+
+
 
 
 
@@ -220,7 +217,7 @@ class swift():
 
 	#------------------------------------------------------------------------------------------------------------------------
 		self.command_pub.publish(self.cmd)
-		self.alt_error_pub.publish(self.error[2])
+		self.alt_error_pub.publish(self.alt_error)
 		
 
 
@@ -236,3 +233,4 @@ if __name__ == '__main__':
 	while not rospy.is_shutdown():
 		swift_drone.pid()
 		r.sleep()
+
